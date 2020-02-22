@@ -14,21 +14,23 @@ import (
 
 // Downloader handles concurrent chunk downloads
 type Downloader struct {
-	Client    *drive.Client
-	queue     chan *Request
-	callbacks map[string][]DownloadCallback
-	lock      sync.Mutex
+	Client     *drive.Client
+	queue      chan *Request
+	callbacks  map[string][]DownloadCallback
+	lock       sync.Mutex
+	bufferPool *BufferPool
 }
 
 // DownloadCallback is called after a download has finished
 type DownloadCallback func(error, *Buffer)
 
 // NewDownloader creates a new download manager
-func NewDownloader(threads int, client *drive.Client) (*Downloader, error) {
+func NewDownloader(threads int, client *drive.Client, bufferPool *BufferPool) (*Downloader, error) {
 	manager := Downloader{
-		Client:    client,
-		queue:     make(chan *Request, 100),
-		callbacks: make(map[string][]DownloadCallback, 100),
+		Client:     client,
+		queue:      make(chan *Request, 100),
+		callbacks:  make(map[string][]DownloadCallback, 100),
+		bufferPool: bufferPool,
 	}
 
 	for i := 0; i < threads; i++ {
@@ -58,7 +60,7 @@ func (d *Downloader) thread() {
 
 func (d *Downloader) download(client *http.Client, req *Request) {
 	Log.Debugf("Starting download %v (preload: %v)", req.id, req.preload)
-	buffer, err := downloadFromAPI(client, req, 0)
+	buffer, err := d.downloadFromAPI(client, req, 0)
 
 	d.lock.Lock()
 	callbacks := d.callbacks[req.id]
@@ -72,7 +74,7 @@ func (d *Downloader) download(client *http.Client, req *Request) {
 	d.lock.Unlock()
 }
 
-func downloadFromAPI(client *http.Client, request *Request, delay int64) (*Buffer, error) {
+func (d *Downloader) downloadFromAPI(client *http.Client, request *Request, delay int64) (*Buffer, error) {
 	// sleep if request is throttled
 	if delay > 0 {
 		time.Sleep(time.Duration(delay) * time.Second)
@@ -123,7 +125,7 @@ func downloadFromAPI(client *http.Client, request *Request, delay int64) (*Buffe
 			} else {
 				delay = delay * 2
 			}
-			return downloadFromAPI(client, request, delay)
+			return d.downloadFromAPI(client, request, delay)
 		}
 
 		// return an error if other error occurred
@@ -132,7 +134,7 @@ func downloadFromAPI(client *http.Client, request *Request, delay int64) (*Buffe
 			request.object.ObjectID, request.object.Name, res.StatusCode)
 	}
 
-	buffer := NewBuffer()
+	buffer := d.bufferPool.Get()
 	buffer.Ref()
 	n, err := buffer.ReadFrom(reader)
 	if nil != err {
