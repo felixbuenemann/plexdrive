@@ -20,7 +20,8 @@ type Downloader struct {
 	lock      sync.Mutex
 }
 
-type DownloadCallback func(error, []byte)
+// DownloadCallback is called after a download has finished
+type DownloadCallback func(error, *Buffer)
 
 // NewDownloader creates a new download manager
 func NewDownloader(threads int, client *drive.Client) (*Downloader, error) {
@@ -57,18 +58,21 @@ func (d *Downloader) thread() {
 
 func (d *Downloader) download(client *http.Client, req *Request) {
 	Log.Debugf("Starting download %v (preload: %v)", req.id, req.preload)
-	bytes, err := downloadFromAPI(client, req, 0)
+	buffer, err := downloadFromAPI(client, req, 0)
 
 	d.lock.Lock()
 	callbacks := d.callbacks[req.id]
 	for _, callback := range callbacks {
-		callback(err, bytes)
+		callback(err, buffer)
 	}
 	delete(d.callbacks, req.id)
+	if nil != buffer {
+		buffer.Unref()
+	}
 	d.lock.Unlock()
 }
 
-func downloadFromAPI(client *http.Client, request *Request, delay int64) ([]byte, error) {
+func downloadFromAPI(client *http.Client, request *Request, delay int64) (*Buffer, error) {
 	// sleep if request is throttled
 	if delay > 0 {
 		time.Sleep(time.Duration(delay) * time.Second)
@@ -128,11 +132,15 @@ func downloadFromAPI(client *http.Client, request *Request, delay int64) ([]byte
 			request.object.ObjectID, request.object.Name, res.StatusCode)
 	}
 
-	bytes, err := ioutil.ReadAll(reader)
+	buffer := NewBuffer()
+	buffer.Ref()
+	n, err := buffer.ReadFrom(reader)
 	if nil != err {
+		buffer.Unref()
 		Log.Debugf("%v", err)
 		return nil, fmt.Errorf("Could not read objects %v (%v) API response", request.object.ObjectID, request.object.Name)
 	}
+	Log.Debugf("Downloaded %v bytes of %v (%v)", n, request.object.ObjectID, request.object.Name)
 
-	return bytes, nil
+	return buffer, nil
 }

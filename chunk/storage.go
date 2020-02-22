@@ -14,7 +14,7 @@ var ErrTimeout = errors.New("timeout")
 type Storage struct {
 	ChunkSize int64
 	MaxChunks int
-	chunks    map[string][]byte
+	chunks    map[string]*Buffer
 	stack     *Stack
 	lock      sync.RWMutex
 }
@@ -30,7 +30,7 @@ func NewStorage(chunkSize int64, maxChunks int) *Storage {
 	storage := Storage{
 		ChunkSize: chunkSize,
 		MaxChunks: maxChunks,
-		chunks:    make(map[string][]byte),
+		chunks:    make(map[string]*Buffer),
 		stack:     NewStack(maxChunks),
 	}
 
@@ -43,11 +43,12 @@ func (s *Storage) Clear() error {
 }
 
 // Load a chunk from ram or creates it
-func (s *Storage) Load(id string) []byte {
+func (s *Storage) Load(id string) *Buffer {
 	s.lock.RLock()
 	if chunk, exists := s.chunks[id]; exists {
 		s.stack.Touch(id)
 		s.lock.RUnlock()
+		chunk.Ref()
 		return chunk
 	}
 	s.lock.RUnlock()
@@ -55,7 +56,7 @@ func (s *Storage) Load(id string) []byte {
 }
 
 // Store stores a chunk in the RAM and adds it to the disk storage queue
-func (s *Storage) Store(id string, bytes []byte) error {
+func (s *Storage) Store(id string, chunk *Buffer) error {
 	s.lock.RLock()
 
 	if _, exists := s.chunks[id]; exists {
@@ -68,13 +69,15 @@ func (s *Storage) Store(id string, bytes []byte) error {
 	s.lock.Lock()
 
 	deleteID := s.stack.Pop()
-	if "" != deleteID {
+	if chunk, exists := s.chunks[deleteID]; exists {
 		delete(s.chunks, deleteID)
+		chunk.Unref()
 
 		Log.Debugf("Deleted chunk %v", deleteID)
 	}
 
-	s.chunks[id] = bytes
+	chunk.Ref()
+	s.chunks[id] = chunk
 	s.stack.Push(id)
 	s.lock.Unlock()
 
