@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	. "github.com/claudetech/loggo/default"
-
 	"github.com/plexdrive/plexdrive/drive"
 )
 
@@ -39,6 +38,7 @@ type Response struct {
 	Sequence int
 	Error    error
 	Bytes    []byte
+	Free     func()
 }
 
 // NewManager creates a new chunk manager
@@ -102,19 +102,29 @@ func (m *Manager) GetChunk(object *drive.APIObject, offset, size int64) ([]byte,
 	}
 
 	data := make([]byte, size, size)
+	var err error
 	for i := 0; i < cap(responses); i++ {
 		res := <-responses
 		if nil != res.Error {
-			return nil, res.Error
+			err = res.Error
+			continue
 		}
 
-		dataOffset := ranges[res.Sequence].offset - offset
+		if err == nil {
+			dataOffset := ranges[res.Sequence].offset - offset
 
-		if n := copy(data[dataOffset:], res.Bytes); n == 0 {
-			return nil, fmt.Errorf("Request %v slice %v has empty response", object.ObjectID, res.Sequence)
+			n := copy(data[dataOffset:], res.Bytes)
+			if n == 0 {
+				err = fmt.Errorf("Request %v slice %v has empty response", object.ObjectID, res.Sequence)
+			}
 		}
+		res.Free()
 	}
 	close(responses)
+
+	if nil != err {
+		return nil, err
+	}
 
 	return data, nil
 }
@@ -186,17 +196,21 @@ func (m *Manager) thread() {
 }
 
 func (m *Manager) checkChunk(req *Request, response chan Response) {
-	if bytes := m.storage.Load(req.id); nil != bytes {
+	if buffer := m.storage.Load(req.id); nil != buffer {
 		if nil != response {
+			buffer.Ref()
+			bytes := buffer.Bytes()
 			response <- Response{
 				Sequence: req.sequence,
 				Bytes:    adjustResponseChunk(req, bytes),
+				Free:     func() { buffer.Unref() },
 			}
 		}
+		buffer.Unref()
 		return
 	}
 
-	m.downloader.Download(req, func(err error, bytes []byte) {
+	m.downloader.Download(req, func(err error, buffer *Buffer) {
 		if nil != err {
 			if nil != response {
 				response <- Response{
@@ -208,13 +222,16 @@ func (m *Manager) checkChunk(req *Request, response chan Response) {
 		}
 
 		if nil != response {
+			buffer.Ref()
+			bytes := buffer.Bytes()
 			response <- Response{
 				Sequence: req.sequence,
 				Bytes:    adjustResponseChunk(req, bytes),
+				Free:     func() { buffer.Unref() },
 			}
 		}
 
-		if err := m.storage.Store(req.id, bytes); nil != err {
+		if err := m.storage.Store(req.id, buffer); nil != err {
 			Log.Warningf("Coult not store chunk %v", req.id)
 		}
 	})
