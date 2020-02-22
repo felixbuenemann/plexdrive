@@ -1,7 +1,7 @@
 package chunk
 
 import (
-	"bytes"
+	"io"
 	"sync"
 	"sync/atomic"
 
@@ -22,8 +22,8 @@ func NewBufferPool(bufferSize int64) *BufferPool {
 		New: func() interface{} {
 			id := atomic.AddInt64(&bp.size, 1)
 			Log.Debugf("Allocate buffer %v", id)
-			buffer := bytes.NewBuffer(make([]byte, bufferSize))
-			return &Buffer{*buffer, id, 0, bp}
+			bytes := make([]byte, bufferSize)
+			return &Buffer{bytes, id, 0, bp}
 		},
 	}
 	return bp
@@ -45,10 +45,25 @@ func (bp *BufferPool) Put(buffer *Buffer) {
 
 // Buffer is a managed memory buffer with a reference counter
 type Buffer struct {
-	bytes.Buffer
-	id   int64
-	refs int64
+	bytes []byte
+	id    int64
+	refs  int64
+
 	pool *BufferPool
+}
+
+// Bytes from the buffer
+func (b *Buffer) Bytes() []byte {
+	return b.bytes
+}
+
+// ReadFrom reader into the buffer
+func (b *Buffer) ReadFrom(r io.Reader) (int64, error) {
+	n, err := io.ReadFull(r, b.bytes)
+	if err == io.ErrUnexpectedEOF {
+		err = nil // Ignore short reads
+	}
+	return int64(n), err
 }
 
 // Ref increases the reference count of the buffer
@@ -66,7 +81,6 @@ func (b *Buffer) Unref() {
 	}
 	if refs == 0 {
 		Log.Debugf("Release buffer %v", b.id)
-		b.Reset()
 		b.pool.Put(b)
 	}
 }
