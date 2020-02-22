@@ -10,7 +10,8 @@ import (
 
 // BufferPool manages a pool of buffers
 type BufferPool struct {
-	size uint64
+	size int64
+	used int64
 	pool sync.Pool
 }
 
@@ -19,7 +20,7 @@ func NewBufferPool(bufferSize int64) *BufferPool {
 	bp := new(BufferPool)
 	bp.pool = sync.Pool{
 		New: func() interface{} {
-			id := atomic.AddUint64(&bp.size, 1)
+			id := atomic.AddInt64(&bp.size, 1)
 			Log.Debugf("Allocate buffer %v", id)
 			buffer := bytes.NewBuffer(make([]byte, bufferSize))
 			return &Buffer{*buffer, id, 0, bp}
@@ -30,18 +31,22 @@ func NewBufferPool(bufferSize int64) *BufferPool {
 
 // Get a buffer from the pool
 func (bp *BufferPool) Get() *Buffer {
+	used := atomic.AddInt64(&bp.used, 1)
+	Log.Debugf("Buffer pool usage %v / %v (get)", used, bp.size)
 	return bp.pool.Get().(*Buffer)
 }
 
 // Put a buffer into the pool
 func (bp *BufferPool) Put(buffer *Buffer) {
+	used := atomic.AddInt64(&bp.used, -1)
+	Log.Debugf("Buffer pool usage %v / %v (put)", used, bp.size)
 	bp.pool.Put(buffer)
 }
 
 // Buffer is a managed memory buffer with a reference counter
 type Buffer struct {
 	bytes.Buffer
-	id   uint64
+	id   int64
 	refs int64
 	pool *BufferPool
 }
