@@ -20,8 +20,13 @@ func NewBufferPool(size int, bufferSize int64) *BufferPool {
 	bp := &BufferPool{
 		pool: make(chan *Buffer, size),
 	}
+	zero := byte(0)
+	zeroes := make([]byte, bufferSize)
+	for i := int64(0); i < bufferSize; i++ {
+		zeroes[i] = zero
+	}
 	for i := 0; i < size; i++ {
-		bp.pool <- bp.newBuffer(bufferSize)
+		bp.pool <- bp.newBuffer(zeroes)
 	}
 	Log.Debugf("Initialized buffer pool with %v %v B slots", size, bufferSize)
 	return bp
@@ -43,9 +48,10 @@ func (bp *BufferPool) Put(buffer *Buffer) {
 	Log.Debugf("Buffer pool usage %v / %v (put)", bp.used(), bp.size())
 }
 
-func (bp *BufferPool) newBuffer(size int64) *Buffer {
+func (bp *BufferPool) newBuffer(content []byte) *Buffer {
 	id := bp.free()
-	bytes := make([]byte, size)
+	bytes := make([]byte, len(content))
+	copy(bytes, content)
 	return &Buffer{bytes, id, 0, bp}
 }
 
