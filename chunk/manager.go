@@ -3,7 +3,6 @@ package chunk
 import (
 	"fmt"
 
-	. "github.com/claudetech/loggo/default"
 	"github.com/plexdrive/plexdrive/drive"
 )
 
@@ -38,7 +37,6 @@ type Response struct {
 	Sequence int
 	Error    error
 	Bytes    []byte
-	Free     func()
 }
 
 // NewManager creates a new chunk manager
@@ -62,9 +60,9 @@ func NewManager(
 
 	bufferPool := NewBufferPool(maxChunks+loadThreads, chunkSize)
 
-	storage := NewStorage(chunkSize, maxChunks)
+	storage := NewStorage(chunkSize, maxChunks, bufferPool)
 
-	downloader, err := NewDownloader(loadThreads, client, bufferPool, storage)
+	downloader, err := NewDownloader(loadThreads, client, storage)
 	if nil != err {
 		return nil, err
 	}
@@ -122,7 +120,6 @@ func (m *Manager) GetChunk(object *drive.APIObject, offset, size int64) ([]byte,
 				err = fmt.Errorf("Request %v slice %v has empty response", object.ObjectID, res.Sequence)
 			}
 		}
-		res.Free()
 	}
 	close(responses)
 
@@ -200,20 +197,17 @@ func (m *Manager) thread() {
 }
 
 func (m *Manager) checkChunk(req *Request, response chan Response) {
-	if buffer := m.storage.Load(req.id); nil != buffer {
+	if chunk := m.storage.Load(req.id); nil != chunk {
 		if nil != response {
-			buffer.Ref()
 			response <- Response{
 				Sequence: req.sequence,
-				Bytes:    adjustResponseChunk(req, buffer.Bytes()),
-				Free:     func() { buffer.Unref() },
+				Bytes:    adjustResponseChunk(req, chunk),
 			}
 		}
-		buffer.Unref()
 		return
 	}
 
-	m.downloader.Download(req, func(err error, buffer *Buffer) {
+	m.downloader.Download(req, func(err error, chunk []byte) {
 		if nil != err {
 			if nil != response {
 				response <- Response{
@@ -225,11 +219,9 @@ func (m *Manager) checkChunk(req *Request, response chan Response) {
 		}
 
 		if nil != response {
-			buffer.Ref()
 			response <- Response{
 				Sequence: req.sequence,
-				Bytes:    adjustResponseChunk(req, buffer.Bytes()),
-				Free:     func() { buffer.Unref() },
+				Bytes:    adjustResponseChunk(req, chunk),
 			}
 		}
 	})
