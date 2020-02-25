@@ -26,19 +26,26 @@ func NewBufferPool(size int, bufferSize int64) *BufferPool {
 
 // Get a buffer from the pool
 func (bp *BufferPool) Get() []byte {
-	if bp.used() == bp.size() {
-		Log.Debugf("Buffer pool usage %v / %v (wait)", bp.used(), bp.size())
+	select {
+	case buffer := <-bp.pool:
+		Log.Debugf("Buffer pool usage %v / %v (get)", bp.used(), bp.size())
+	default:
+		Log.Fatalf("Buffer pool usage %v / %v (blocking get)", bp.used(), bp.size())
+		panic("Buffer pool blocking during Get")
 	}
-	buffer := <-bp.pool
-	Log.Debugf("Buffer pool usage %v / %v (get)", bp.used(), bp.size())
 	return buffer
 }
 
 // Put a buffer into the pool
 func (bp *BufferPool) Put(buffer []byte) {
 	buffer = buffer[:cap(buffer)]
-	bp.pool <- buffer
-	Log.Debugf("Buffer pool usage %v / %v (put)", bp.used(), bp.size())
+	select {
+	case bp.pool <- buffer:
+		Log.Debugf("Buffer pool usage %v / %v (put)", bp.used(), bp.size())
+	default:
+		Log.Fatalf("Buffer pool usage %v / %v (blocking put)", bp.used(), bp.size())
+		panic("Buffer pool blocking during Put")
+	}
 }
 
 func (bp *BufferPool) size() int {
