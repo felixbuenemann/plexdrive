@@ -18,16 +18,18 @@ type Downloader struct {
 	queue     chan *Request
 	callbacks map[string][]DownloadCallback
 	lock      sync.Mutex
+	storage   *Storage
 }
 
 type DownloadCallback func(error, []byte)
 
 // NewDownloader creates a new download manager
-func NewDownloader(threads int, client *drive.Client) (*Downloader, error) {
+func NewDownloader(threads int, client *drive.Client, storage *Storage) (*Downloader, error) {
 	manager := Downloader{
 		Client:    client,
 		queue:     make(chan *Request, 100),
 		callbacks: make(map[string][]DownloadCallback, 100),
+		storage:   storage,
 	}
 
 	for i := 0; i < threads; i++ {
@@ -59,6 +61,10 @@ func (d *Downloader) download(client *http.Client, req *Request) {
 	Log.Debugf("Starting download %v (preload: %v)", req.id, req.preload)
 	bytes, err := downloadFromAPI(client, req, 0)
 
+	if err := d.storage.Store(req.id, bytes); nil != err {
+		Log.Warningf("Could not store chunk %v", req.id)
+	}
+
 	d.lock.Lock()
 	callbacks := d.callbacks[req.id]
 	for _, callback := range callbacks {
@@ -66,6 +72,10 @@ func (d *Downloader) download(client *http.Client, req *Request) {
 	}
 	delete(d.callbacks, req.id)
 	d.lock.Unlock()
+
+	if nil != err {
+		return
+	}
 }
 
 func downloadFromAPI(client *http.Client, request *Request, delay int64) ([]byte, error) {
