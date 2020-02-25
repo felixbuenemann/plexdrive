@@ -2,6 +2,7 @@ package chunk
 
 import (
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -14,25 +15,23 @@ import (
 
 // Downloader handles concurrent chunk downloads
 type Downloader struct {
-	Client     *drive.Client
-	queue      chan *Request
-	callbacks  map[string][]DownloadCallback
-	lock       sync.Mutex
-	bufferPool *BufferPool
-	storage    *Storage
+	Client    *drive.Client
+	queue     chan *Request
+	callbacks map[string][]DownloadCallback
+	lock      sync.Mutex
+	storage   *Storage
 }
 
 // DownloadCallback is called after a download has finished
-type DownloadCallback func(error, *Buffer)
+type DownloadCallback func(error, []byte)
 
 // NewDownloader creates a new download manager
-func NewDownloader(threads int, client *drive.Client, bufferPool *BufferPool, storage *Storage) (*Downloader, error) {
+func NewDownloader(threads int, client *drive.Client, storage *Storage) (*Downloader, error) {
 	manager := Downloader{
-		Client:     client,
-		queue:      make(chan *Request, 100),
-		callbacks:  make(map[string][]DownloadCallback, 100),
-		bufferPool: bufferPool,
-		storage:    storage,
+		Client:    client,
+		queue:     make(chan *Request, 100),
+		callbacks: make(map[string][]DownloadCallback, 100),
+		storage:   storage,
 	}
 
 	for i := 0; i < threads; i++ {
@@ -64,10 +63,6 @@ func (d *Downloader) download(client *http.Client, req *Request) {
 	Log.Debugf("Starting download %v (preload: %v)", req.id, req.preload)
 	buffer, err := d.downloadFromAPI(client, req, 0)
 
-	if err := d.storage.Store(req.id, buffer); nil != err {
-		Log.Warningf("Coult not store chunk %v", req.id)
-	}
-
 	d.lock.Lock()
 	callbacks := d.callbacks[req.id]
 	for _, callback := range callbacks {
@@ -83,10 +78,9 @@ func (d *Downloader) download(client *http.Client, req *Request) {
 	if err := d.storage.Store(req.id, buffer); nil != err {
 		Log.Warningf("Could not store chunk %v", req.id)
 	}
-	buffer.Unref()
 }
 
-func (d *Downloader) downloadFromAPI(client *http.Client, request *Request, delay int64) (*Buffer, error) {
+func (d *Downloader) downloadFromAPI(client *http.Client, request *Request, delay int64) ([]byte, error) {
 	// sleep if request is throttled
 	if delay > 0 {
 		time.Sleep(time.Duration(delay) * time.Second)
@@ -146,11 +140,14 @@ func (d *Downloader) downloadFromAPI(client *http.Client, request *Request, dela
 			request.object.ObjectID, request.object.Name, res.StatusCode)
 	}
 
-	buffer := d.bufferPool.Get()
-	buffer.Ref()
-	n, err := buffer.ReadFrom(reader)
+	buffer := d.storage.BufferPool.Get()
+
+	if res.ContentLength == -1 {
+		return nil, fmt.Errorf("Missing Content-Length header in response")
+	}
+
+	n, err := io.ReadFull(reader, buffer[:res.ContentLength:cap(buffer)])
 	if nil != err {
-		buffer.Unref()
 		Log.Debugf("%v", err)
 		return nil, fmt.Errorf("Could not read objects %v (%v) API response", request.object.ObjectID, request.object.Name)
 	}
