@@ -19,18 +19,20 @@ type Downloader struct {
 	callbacks  map[string][]DownloadCallback
 	lock       sync.Mutex
 	bufferPool *BufferPool
+	storage    *Storage
 }
 
 // DownloadCallback is called after a download has finished
 type DownloadCallback func(error, *Buffer)
 
 // NewDownloader creates a new download manager
-func NewDownloader(threads int, client *drive.Client, bufferPool *BufferPool) (*Downloader, error) {
+func NewDownloader(threads int, client *drive.Client, bufferPool *BufferPool, storage *Storage) (*Downloader, error) {
 	manager := Downloader{
 		Client:     client,
 		queue:      make(chan *Request, 100),
 		callbacks:  make(map[string][]DownloadCallback, 100),
 		bufferPool: bufferPool,
+		storage:    storage,
 	}
 
 	for i := 0; i < threads; i++ {
@@ -62,16 +64,26 @@ func (d *Downloader) download(client *http.Client, req *Request) {
 	Log.Debugf("Starting download %v (preload: %v)", req.id, req.preload)
 	buffer, err := d.downloadFromAPI(client, req, 0)
 
+	if err := d.storage.Store(req.id, buffer); nil != err {
+		Log.Warningf("Coult not store chunk %v", req.id)
+	}
+
 	d.lock.Lock()
 	callbacks := d.callbacks[req.id]
 	for _, callback := range callbacks {
 		callback(err, buffer)
 	}
 	delete(d.callbacks, req.id)
-	if nil != buffer {
-		buffer.Unref()
-	}
 	d.lock.Unlock()
+
+	if nil != err {
+		return
+	}
+
+	if err := d.storage.Store(req.id, buffer); nil != err {
+		Log.Warningf("Could not store chunk %v", req.id)
+	}
+	buffer.Unref()
 }
 
 func (d *Downloader) downloadFromAPI(client *http.Client, request *Request, delay int64) (*Buffer, error) {
