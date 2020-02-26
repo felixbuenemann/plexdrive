@@ -20,7 +20,7 @@ func NewBufferPool(size int, bufferSize int64) *BufferPool {
 	for i := 0; i < size; i++ {
 		bp.pool <- make([]byte, bufferSize, bufferSize)
 	}
-	Log.Debugf("Initialized buffer pool with %v %v B slots", size, bufferSize)
+	Log.Debugf("Initialized buffer pool with %v * %v Byte slots", size, bufferSize)
 	return bp
 }
 
@@ -28,12 +28,12 @@ func NewBufferPool(size int, bufferSize int64) *BufferPool {
 func (bp *BufferPool) Get() []byte {
 	select {
 	case buffer := <-bp.pool:
-		Log.Debugf("Buffer pool usage %v / %v (get)", bp.used(), bp.size())
+		Log.Tracef("Buffer pool usage %v / %v (get)", bp.used(), bp.size())
+		return buffer
 	default:
 		Log.Fatalf("Buffer pool usage %v / %v (blocking get)", bp.used(), bp.size())
 		panic("Buffer pool blocking during Get")
 	}
-	return buffer
 }
 
 // Put a buffer into the pool
@@ -41,7 +41,7 @@ func (bp *BufferPool) Put(buffer []byte) {
 	buffer = buffer[:cap(buffer)]
 	select {
 	case bp.pool <- buffer:
-		Log.Debugf("Buffer pool usage %v / %v (put)", bp.used(), bp.size())
+		Log.Tracef("Buffer pool usage %v / %v (put)", bp.used(), bp.size())
 	default:
 		Log.Fatalf("Buffer pool usage %v / %v (blocking put)", bp.used(), bp.size())
 		panic("Buffer pool blocking during Put")
