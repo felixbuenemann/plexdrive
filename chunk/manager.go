@@ -2,6 +2,7 @@ package chunk
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/plexdrive/plexdrive/drive"
 )
@@ -41,6 +42,7 @@ type Response struct {
 
 // NewManager creates a new chunk manager
 func NewManager(
+	chunkFile string,
 	chunkSize int64,
 	loadAhead,
 	checkThreads int,
@@ -48,17 +50,21 @@ func NewManager(
 	client *drive.Client,
 	maxChunks int) (*Manager, error) {
 
-	if chunkSize < 4096 {
-		return nil, fmt.Errorf("Chunk size must not be < 4096")
+	pageSize := int64(os.Getpagesize())
+	if chunkSize < pageSize {
+		return nil, fmt.Errorf("Chunk size must not be < %v", pageSize)
 	}
-	if chunkSize%1024 != 0 {
-		return nil, fmt.Errorf("Chunk size must be divideable by 1024")
+	if chunkSize%pageSize != 0 {
+		return nil, fmt.Errorf("Chunk size must be divideable by %v", pageSize)
 	}
 	if maxChunks < 2 || maxChunks < loadAhead {
 		return nil, fmt.Errorf("max-chunks must be greater than 2 and bigger than the load ahead value")
 	}
 
-	bufferPool := NewBufferPool(maxChunks+loadThreads, chunkSize)
+	bufferPool, err := NewBufferPool(maxChunks+loadThreads, chunkSize, chunkFile)
+	if nil != err {
+		return nil, err
+	}
 
 	storage := NewStorage(chunkSize, maxChunks, bufferPool)
 
@@ -88,6 +94,7 @@ func NewManager(
 
 // GetChunk loads one chunk and starts the preload for the next chunks
 func (m *Manager) GetChunk(object *drive.APIObject, offset, size int64) ([]byte, error) {
+	// Log.Tracef("Get %v offset %v size %v", object.ObjectID, offset, size)
 	maxOffset := int64(object.Size)
 	if offset > maxOffset {
 		return nil, fmt.Errorf("Tried to read past EOF of %v at offset %v", object.ObjectID, offset)

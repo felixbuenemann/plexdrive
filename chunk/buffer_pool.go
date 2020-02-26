@@ -1,6 +1,10 @@
 package chunk
 
 import (
+	"fmt"
+	"os"
+	"syscall"
+
 	. "github.com/claudetech/loggo/default"
 )
 
@@ -10,18 +14,40 @@ type BufferPool struct {
 }
 
 // NewBufferPool creates a new buffer pool
-func NewBufferPool(size int, bufferSize int64) *BufferPool {
+func NewBufferPool(size int, bufferSize int64, chunkFilePath string) (*BufferPool, error) {
 	if size <= 1 {
 		panic("Invalid buffer pool size")
 	}
 	bp := &BufferPool{
 		pool: make(chan []byte, size),
 	}
-	for i := 0; i < size; i++ {
-		bp.pool <- make([]byte, bufferSize, bufferSize)
+	// Non-empty string in chunkFilePath enables MMAP disk storage for chunks
+	if chunkFilePath != "" {
+		chunkFile, err := os.OpenFile(chunkFilePath, os.O_RDWR|os.O_CREATE, 0600)
+		if nil != err {
+			Log.Debugf("%v", err)
+			return nil, fmt.Errorf("Could not open chunk cache file")
+		}
+		err = chunkFile.Truncate(int64(size) * bufferSize)
+		if nil != err {
+			Log.Debugf("%v", err)
+			return nil, fmt.Errorf("Could not resize chunk cache file")
+		}
+		Log.Infof("Created buffer pool cache file %v", chunkFile.Name())
+		for i := 0; i < size; i++ {
+			buffer, err := syscall.Mmap(int(chunkFile.Fd()), int64(i)*bufferSize, int(bufferSize), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+			if err != nil {
+				return nil, err
+			}
+			bp.pool <- buffer
+		}
+	} else {
+		for i := 0; i < size; i++ {
+			bp.pool <- make([]byte, bufferSize, bufferSize)
+		}
 	}
 	Log.Debugf("Initialized buffer pool with %v * %v Byte slots", size, bufferSize)
-	return bp
+	return bp, nil
 }
 
 // Get a buffer from the pool
