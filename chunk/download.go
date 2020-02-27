@@ -20,6 +20,7 @@ type Downloader struct {
 	callbacks map[string][]DownloadCallback
 	lock      sync.Mutex
 	storage   *Storage
+	throttle  chan time.Time
 }
 
 // DownloadCallback is called after a download has finished
@@ -27,11 +28,25 @@ type DownloadCallback func(error, []byte)
 
 // NewDownloader creates a new download manager
 func NewDownloader(threads int, client *drive.Client, storage *Storage) (*Downloader, error) {
+	rate := time.Second / 10
+	burstLimit := 100
+	tick := time.NewTicker(rate)
+	throttle := make(chan time.Time, burstLimit)
+	go func() {
+		for t := range tick.C {
+			select {
+			case throttle <- t:
+			default:
+			}
+		} // does not exit after tick.Stop()
+	}()
+
 	manager := Downloader{
 		Client:    client,
 		queue:     make(chan *Request, 100),
 		callbacks: make(map[string][]DownloadCallback, 100),
 		storage:   storage,
+		throttle:  throttle,
 	}
 
 	for i := 0; i < threads; i++ {
@@ -85,6 +100,8 @@ func (d *Downloader) downloadFromAPI(client *http.Client, request *Request, dela
 	if delay > 0 {
 		time.Sleep(time.Duration(delay) * time.Second)
 	}
+	// obey rate limits
+	<-d.throttle
 
 	req, err := http.NewRequest("GET", request.object.DownloadURL, nil)
 	if nil != err {
