@@ -63,6 +63,7 @@ func (s *Storage) Store(id string, chunk []byte) error {
 	if _, exists := s.chunks[id]; exists {
 		s.stack.Touch(id)
 		s.lock.RUnlock()
+		s.BufferPool.Put(chunk)
 		return nil
 	}
 
