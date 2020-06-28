@@ -140,15 +140,16 @@ func (d *Downloader) downloadFromAPI(client *http.Client, request *Request, dela
 			request.object.ObjectID, request.object.Name, res.StatusCode)
 	}
 
-	buffer := d.storage.BufferPool.Get()
-
 	if res.ContentLength == -1 {
 		return nil, fmt.Errorf("Missing Content-Length header in response")
 	}
 
+	buffer := d.storage.BufferPool.Get()
+
 	n, err := io.ReadFull(reader, buffer[:res.ContentLength:cap(buffer)])
 	if nil != err {
 		Log.Debugf("%v", err)
+		d.storage.BufferPool.Put(buffer)
 		return nil, fmt.Errorf("Could not read objects %v (%v) API response", request.object.ObjectID, request.object.Name)
 	}
 	Log.Debugf("Downloaded %v bytes of %v (%v)", n, request.object.ObjectID, request.object.Name)
