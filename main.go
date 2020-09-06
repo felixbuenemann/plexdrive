@@ -184,6 +184,10 @@ func main() {
 			os.Exit(4)
 		}
 
+		if *argChunkMmap != true {
+			*argChunkFile = ""
+		}
+
 		chunkManager, err := chunk.NewManager(
 			*argChunkFile,
 			chunkSize,
