@@ -43,7 +43,12 @@ func NewBufferPool(size int, bufferSize int64, chunkFilePath string) (*BufferPoo
 		}
 	} else {
 		for i := 0; i < size; i++ {
-			bp.pool <- make([]byte, bufferSize, bufferSize)
+			// bp.pool <- make([]byte, bufferSize, bufferSize)
+			buffer, err := syscall.Mmap(-1, 0, int(bufferSize), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_ANON|syscall.MAP_PRIVATE)
+			if err != nil {
+				return nil, err
+			}
+			bp.pool <- buffer
 		}
 	}
 	Log.Debugf("Initialized buffer pool with %v * %v Byte slots", size, bufferSize)
