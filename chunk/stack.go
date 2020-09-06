@@ -9,7 +9,6 @@ import (
 type Stack struct {
 	items   *list.List
 	index   map[string]*list.Element
-	len     int
 	lock    sync.Mutex
 	maxSize int
 }
@@ -26,7 +25,7 @@ func NewStack(maxChunks int) *Stack {
 // Pop pops the first item from the stack
 func (s *Stack) Pop() string {
 	s.lock.Lock()
-	if s.len < s.maxSize {
+	if s.items.Len() < s.maxSize {
 		s.lock.Unlock()
 		return ""
 	}
@@ -37,7 +36,6 @@ func (s *Stack) Pop() string {
 		return ""
 	}
 	s.items.Remove(item)
-	s.len--
 	id := item.Value.(string)
 	delete(s.index, id)
 	s.lock.Unlock()
@@ -64,6 +62,5 @@ func (s *Stack) Push(id string) {
 	}
 	s.items.PushBack(id)
 	s.index[id] = s.items.Back()
-	s.len++
 	s.lock.Unlock()
 }
