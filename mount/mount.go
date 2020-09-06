@@ -242,13 +242,14 @@ func (o *Object) Lookup(ctx context.Context, name string) (fs.Node, error) {
 
 // Read reads some bytes or the whole file
 func (o *Object) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {
-	data, err := o.chunkManager.GetChunk(o.object, req.Offset, int64(req.Size))
+	data, err := o.chunkManager.GetChunk(o.object, req.Offset, int64(req.Size), 16)
 	if nil != err {
 		Log.Warningf("%v", err)
 		return fuse.EIO
 	}
 
 	resp.Data = data
+	resp.ZeroCopy = true
 	return nil
 }
 

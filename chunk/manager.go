@@ -93,7 +93,7 @@ func NewManager(
 }
 
 // GetChunk loads one chunk and starts the preload for the next chunks
-func (m *Manager) GetChunk(object *drive.APIObject, offset, size int64) ([]byte, error) {
+func (m *Manager) GetChunk(object *drive.APIObject, offset, size, padding int64) ([]byte, error) {
 	// Log.Tracef("Get %v offset %v size %v", object.ObjectID, offset, size)
 	maxOffset := int64(object.Size)
 	if offset > maxOffset {
@@ -110,7 +110,7 @@ func (m *Manager) GetChunk(object *drive.APIObject, offset, size int64) ([]byte,
 		m.requestChunk(object, r.offset, r.size, i, responses)
 	}
 
-	data := make([]byte, size, size)
+	data := make([]byte, size+padding, size+padding)
 	var err error
 	for i := 0; i < cap(responses); i++ {
 		res := <-responses
@@ -120,7 +120,7 @@ func (m *Manager) GetChunk(object *drive.APIObject, offset, size int64) ([]byte,
 		}
 
 		if err == nil {
-			dataOffset := ranges[res.Sequence].offset - offset
+			dataOffset := ranges[res.Sequence].offset - offset + padding
 
 			n := copy(data[dataOffset:], res.Bytes)
 			if n == 0 {
