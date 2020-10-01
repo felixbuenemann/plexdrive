@@ -2,6 +2,7 @@ package chunk
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/plexdrive/plexdrive/drive"
 )
@@ -202,7 +203,9 @@ func (m *Manager) checkChunk(req *Request, response chan Response) {
 		return
 	}
 
-	m.downloader.Download(req, func(err error, bytes []byte) {
+	m.downloader.Download(req, func(err error, bytes []byte, wg *sync.WaitGroup) {
+		defer wg.Done()
+
 		if nil != err {
 			if nil != response {
 				response <- Response{

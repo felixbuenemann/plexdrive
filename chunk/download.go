@@ -23,7 +23,7 @@ type Downloader struct {
 	storage    *Storage
 }
 
-type DownloadCallback func(error, []byte)
+type DownloadCallback func(error, []byte, *sync.WaitGroup)
 
 // NewDownloader creates a new download manager
 func NewDownloader(threads int, client *drive.Client, storage *Storage, bufferSize int64) (*Downloader, error) {
@@ -65,10 +65,14 @@ func (d *Downloader) download(client *http.Client, req *Request, buffer []byte) 
 	Log.Debugf("Starting download %v (preload: %v)", req.id, req.preload)
 	err := downloadFromAPI(client, req, buffer, 0)
 
+	var wg sync.WaitGroup
+	defer wg.Wait()
+
 	d.lock.Lock()
 	callbacks := d.callbacks[req.id]
 	for _, callback := range callbacks {
-		callback(err, buffer)
+		wg.Add(1)
+		go callback(err, buffer, &wg)
 	}
 	delete(d.callbacks, req.id)
 	d.lock.Unlock()
