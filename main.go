@@ -49,7 +49,7 @@ func main() {
 	argDriveID := flag.String("drive-id", "", "The ID of the shared drive to mount (including team drives)")
 	argConfigPath := flag.StringP("config", "c", filepath.Join(home, ".plexdrive"), "The path to the configuration directory")
 	argCacheFile := flag.String("cache-file", filepath.Join(*argConfigPath, "cache.bolt"), "Path of the cache file")
-	argChunkFile := flag.String("chunk-file", filepath.Join(*argConfigPath, "chunks.dat"), "Path of the chunk cache file")
+	argChunkFile := flag.String("chunk-file", filepath.Join(*argConfigPath, "chunks.bolt"), "Path of the chunk cache file")
 	argChunkMmap := flag.Bool("chunk-mmap", false, "Enable disk based chunk cache")
 	argChunkSize := flag.String("chunk-size", "10M", "The size of each chunk that is downloaded (units: B, K, M, G)")
 	argChunkLoadThreads := flag.Int("chunk-load-threads", max(runtime.NumCPU()/2, 1), "The number of threads to use for downloading chunks")

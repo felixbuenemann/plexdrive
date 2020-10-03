@@ -6,13 +6,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"path/filepath"
-
 	"time"
 
 	. "github.com/claudetech/loggo/default"
+	bolt "go.etcd.io/bbolt"
 	"golang.org/x/oauth2"
-
-	"github.com/boltdb/bolt"
 )
 
 // Cache is the cache

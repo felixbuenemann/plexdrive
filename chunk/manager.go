@@ -1,9 +1,11 @@
 package chunk
 
 import (
+	"encoding/binary"
 	"fmt"
 	"os"
 
+	. "github.com/claudetech/loggo/default"
 	"github.com/plexdrive/plexdrive/drive"
 )
 
@@ -12,7 +14,7 @@ type Manager struct {
 	ChunkSize  int64
 	LoadAhead  int
 	downloader *Downloader
-	storage    *Storage
+	storage    Storage
 	queue      chan *QueueEntry
 }
 
@@ -38,6 +40,7 @@ type Response struct {
 	Sequence int
 	Error    error
 	Bytes    []byte
+	Done     func()
 }
 
 // NewManager creates a new chunk manager
@@ -98,6 +101,12 @@ func NewManager(
 	return &manager, nil
 }
 
+// Stop the chunk manager
+func (m *Manager) Stop() {
+	Log.Debugf("Stopping chunk manager")
+	m.storage.Close()
+}
+
 // GetChunk loads one chunk and starts the preload for the next chunks
 func (m *Manager) GetChunk(object *drive.APIObject, offset, size int64) ([]byte, error) {
 	maxOffset := int64(object.Size)
@@ -118,20 +127,31 @@ func (m *Manager) GetChunk(object *drive.APIObject, offset, size int64) ([]byte,
 	}
 
 	data := make([]byte, size, size)
+	ok := true
 	for i := 0; i < cap(responses); i++ {
 		res := <-responses
 		if nil != res.Error {
-			return nil, res.Error
+			ok = false
+			Log.Errorf("Request %v slice %v failed to download", object.ObjectID, res.Sequence)
 		}
 
-		dataOffset := ranges[res.Sequence].offset - offset
+		if ok {
+			dataOffset := ranges[res.Sequence].offset - offset
+			if n := copy(data[dataOffset:], res.Bytes); n == 0 {
+				ok = false
+				Log.Errorf("Request %v slice %v has empty response", object.ObjectID, res.Sequence)
+			}
+		}
 
-		if n := copy(data[dataOffset:], res.Bytes); n == 0 {
-			return nil, fmt.Errorf("Request %v slice %v has empty response", object.ObjectID, res.Sequence)
+		if nil != res.Done {
+			res.Done()
 		}
 	}
 	close(responses)
 
+	if !ok {
+		return nil, fmt.Errorf("Failed to get chunk %v:%x", object.ObjectID, itob(offset))
+	}
 	return data, nil
 }
 
@@ -139,7 +159,7 @@ func (m *Manager) requestChunk(object *drive.APIObject, offset, size int64, sequ
 	chunkOffset := offset % m.ChunkSize
 	offsetStart := offset - chunkOffset
 	offsetEnd := offsetStart + m.ChunkSize
-	id := fmt.Sprintf("%v:%v", object.ObjectID, offsetStart)
+	id := fmt.Sprintf("%v:%x", object.ObjectID, itob(offsetStart))
 
 	request := &Request{
 		id:             id,
@@ -165,7 +185,7 @@ func (m *Manager) requestChunk(object *drive.APIObject, offset, size int64, sequ
 		aheadOffsetStart := offsetStart + i
 		aheadOffsetEnd := aheadOffsetStart + m.ChunkSize
 		if uint64(aheadOffsetStart) < object.Size && uint64(aheadOffsetEnd) < object.Size {
-			id := fmt.Sprintf("%v:%v", object.ObjectID, aheadOffsetStart)
+			id := fmt.Sprintf("%v:%x", object.ObjectID, itob(aheadOffsetStart))
 			request := &Request{
 				id:          id,
 				object:      object,
@@ -206,37 +226,36 @@ func (m *Manager) thread() {
 }
 
 func (m *Manager) checkChunk(req *Request, response chan Response) {
-	if bytes := m.storage.Load(req.id); nil != bytes {
-		if nil != response {
-			response <- Response{
-				Sequence: req.sequence,
-				Bytes:    adjustResponseChunk(req, bytes),
-			}
+	if nil == response {
+		if exists := m.storage.Check(req.id); !exists {
+			m.downloader.Download(req, nil)
 		}
 		return
 	}
 
-	m.downloader.Download(req, func(err error, bytes []byte) {
-		if nil != err {
-			if nil != response {
-				response <- Response{
-					Sequence: req.sequence,
-					Error:    err,
-				}
-			}
-			return
+	if bytes, done := m.storage.Load(req.id); nil != bytes {
+		response <- Response{
+			Sequence: req.sequence,
+			Bytes:    adjustResponseChunk(req, bytes),
+			Done:     done,
 		}
+		return
+	}
 
-		if nil != response {
-			response <- Response{
-				Sequence: req.sequence,
-				Bytes:    adjustResponseChunk(req, bytes),
-			}
+	m.downloader.Download(req, func(err error, bytes []byte, done func()) {
+		response <- Response{
+			Sequence: req.sequence,
+			Error:    err,
+			Bytes:    adjustResponseChunk(req, bytes),
+			Done:     done,
 		}
 	})
 }
 
 func adjustResponseChunk(req *Request, bytes []byte) []byte {
+	if bytes == nil {
+		return bytes
+	}
 	bytesLen := int64(len(bytes))
 	sOffset := min(req.chunkOffset, bytesLen)
 	eOffset := min(req.chunkOffsetEnd, bytesLen)
@@ -248,4 +267,10 @@ func min(x, y int64) int64 {
 		return x
 	}
 	return y
+}
+
+func itob(n int64) []byte {
+	buf := make([]byte, 8)
+	binary.BigEndian.PutUint64(buf, uint64(n))
+	return buf
 }

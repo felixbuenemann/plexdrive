@@ -96,6 +96,7 @@ func Mount(
 		return err
 	}
 	defer c.Close()
+	defer chunkManager.Stop()
 
 	if err := sdnotify.Ready(); err != nil && err != sdnotify.ErrSdNotifyNoSocket {
 		Log.Errorf("Failed to notify systemd: %v", err)

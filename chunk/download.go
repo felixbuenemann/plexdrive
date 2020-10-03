@@ -20,13 +20,13 @@ type Downloader struct {
 	queue      chan *Request
 	callbacks  map[string][]DownloadCallback
 	lock       sync.Mutex
-	storage    *Storage
+	storage    Storage
 }
 
-type DownloadCallback func(error, []byte)
+type DownloadCallback func(error, []byte, func())
 
 // NewDownloader creates a new download manager
-func NewDownloader(threads int, client *drive.Client, storage *Storage, bufferSize int64) (*Downloader, error) {
+func NewDownloader(threads int, client *drive.Client, storage Storage, bufferSize int64) (*Downloader, error) {
 	manager := Downloader{
 		Client:     client,
 		BufferSize: bufferSize,
@@ -36,7 +36,7 @@ func NewDownloader(threads int, client *drive.Client, storage *Storage, bufferSi
 	}
 
 	for i := 0; i < threads; i++ {
-		go manager.thread()
+		go manager.thread(i)
 	}
 
 	return &manager, nil
@@ -46,29 +46,37 @@ func NewDownloader(threads int, client *drive.Client, storage *Storage, bufferSi
 func (d *Downloader) Download(req *Request, callback DownloadCallback) {
 	d.lock.Lock()
 	callbacks, exists := d.callbacks[req.id]
-	d.callbacks[req.id] = append(callbacks, callback)
+	if nil != callback {
+		d.callbacks[req.id] = append(callbacks, callback)
+	} else if !exists {
+		d.callbacks[req.id] = callbacks
+	}
 	if !exists {
 		d.queue <- req
 	}
 	d.lock.Unlock()
 }
 
-func (d *Downloader) thread() {
+func (d *Downloader) thread(tid int) {
 	buffer := make([]byte, d.BufferSize)
 	for {
 		req := <-d.queue
-		d.download(d.Client.GetNativeClient(), req, buffer)
+		d.download(tid, d.Client.GetNativeClient(), req, buffer)
 	}
 }
 
-func (d *Downloader) download(client *http.Client, req *Request, buffer []byte) {
+func (d *Downloader) download(tid int, client *http.Client, req *Request, buffer []byte) {
 	Log.Debugf("Starting download %v (preload: %v)", req.id, req.preload)
 	err := downloadFromAPI(client, req, buffer, 0)
+
+	var wg sync.WaitGroup
+	defer wg.Wait()
 
 	d.lock.Lock()
 	callbacks := d.callbacks[req.id]
 	for _, callback := range callbacks {
-		callback(err, buffer)
+		wg.Add(1)
+		go callback(err, buffer, wg.Done)
 	}
 	delete(d.callbacks, req.id)
 	d.lock.Unlock()
@@ -78,7 +86,7 @@ func (d *Downloader) download(client *http.Client, req *Request, buffer []byte) 
 	}
 
 	if err := d.storage.Store(req.id, buffer); nil != err {
-		Log.Warningf("Could not store chunk %v: %v", req.id, err)
+		Log.Warningf("Could not store chunk %v: %v (thread %v)", req.id, err, tid)
 	}
 }
 
