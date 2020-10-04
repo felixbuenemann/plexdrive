@@ -20,14 +20,16 @@ func TestAddToStack(t *testing.T) {
 	stack.Touch(1)
 	stack.Touch(3)
 
+	stack.Purge(4)
+
 	v := stack.Pop()
-	if 2 != v {
-		t.Fatalf("Expected 2 got %v", v)
+	if 4 != v {
+		t.Fatalf("Expected 4 got %v", v)
 	}
 
 	v = stack.Pop()
-	if 4 != v {
-		t.Fatalf("Expected 4 got %v", v)
+	if 2 != v {
+		t.Fatalf("Expected 2 got %v", v)
 	}
 
 	v = stack.Pop()

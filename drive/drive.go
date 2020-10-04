@@ -26,7 +26,7 @@ func init() {
 
 // Client holds the Google Drive API connection(s)
 type Client struct {
-	cache           *Cache
+	Cache           *Cache
 	context         context.Context
 	token           *oauth2.Token
 	config          *oauth2.Config
@@ -38,7 +38,7 @@ type Client struct {
 // NewClient creates a new Google Drive client
 func NewClient(config *config.Config, cache *Cache, refreshInterval time.Duration, rootNodeID string, driveID string) (*Client, error) {
 	client := Client{
-		cache:   cache,
+		Cache:   cache,
 		context: context.Background(),
 		config: &oauth2.Config{
 			ClientID:     config.ClientID,
@@ -104,7 +104,7 @@ func (d *Client) checkChanges(firstCheck bool) {
 	}
 
 	// get the last token
-	pageToken, err := d.cache.GetStartPageToken()
+	pageToken, err := d.Cache.GetStartPageToken()
 	if nil != err {
 		pageToken = "1"
 		Log.Info("No last change id found, starting from beginning...")
@@ -149,7 +149,7 @@ func (d *Client) checkChanges(firstCheck bool) {
 			}
 
 			if change.Removed || (nil != change.File && change.File.ExplicitlyTrashed) {
-				if err := d.cache.DeleteObject(change.FileId); nil != err {
+				if err := d.Cache.DeleteObject(change.FileId); nil != err {
 					Log.Tracef("%v", err)
 				}
 				deletedItems++
@@ -166,7 +166,7 @@ func (d *Client) checkChanges(firstCheck bool) {
 
 			processedItems++
 		}
-		if err := d.cache.BatchUpdateObjects(objects); nil != err {
+		if err := d.Cache.BatchUpdateObjects(objects); nil != err {
 			Log.Warningf("%v", err)
 			return
 		}
@@ -178,10 +178,10 @@ func (d *Client) checkChanges(firstCheck bool) {
 
 		if "" != results.NextPageToken {
 			pageToken = results.NextPageToken
-			d.cache.StoreStartPageToken(pageToken)
+			d.Cache.StoreStartPageToken(pageToken)
 		} else {
 			pageToken = results.NewStartPageToken
-			d.cache.StoreStartPageToken(pageToken)
+			d.Cache.StoreStartPageToken(pageToken)
 			break
 		}
 	}
@@ -196,7 +196,7 @@ func (d *Client) checkChanges(firstCheck bool) {
 func (d *Client) authorize() error {
 	Log.Debugf("Authorizing against Google Drive API")
 
-	token, err := d.cache.LoadToken()
+	token, err := d.Cache.LoadToken()
 	if nil != err {
 		Log.Debugf("Token could not be found, fetching new one")
 
@@ -205,7 +205,7 @@ func (d *Client) authorize() error {
 			return err
 		}
 		token = t
-		if err := d.cache.StoreToken(token); nil != err {
+		if err := d.Cache.StoreToken(token); nil != err {
 			return err
 		}
 	}
@@ -278,17 +278,17 @@ func (d *Client) GetRoot() (*APIObject, error) {
 
 // GetObject gets an object by id
 func (d *Client) GetObject(id string) (*APIObject, error) {
-	return d.cache.GetObject(id)
+	return d.Cache.GetObject(id)
 }
 
 // GetObjectsByParent get all objects under parent id
 func (d *Client) GetObjectsByParent(parent string) ([]*APIObject, error) {
-	return d.cache.GetObjectsByParent(parent)
+	return d.Cache.GetObjectsByParent(parent)
 }
 
 // GetObjectByParentAndName finds a child element by name and its parent id
 func (d *Client) GetObjectByParentAndName(parent, name string) (*APIObject, error) {
-	return d.cache.GetObjectByParentAndName(parent, name)
+	return d.Cache.GetObjectByParentAndName(parent, name)
 }
 
 // Remove removes file from Google Drive
@@ -299,7 +299,7 @@ func (d *Client) Remove(object *APIObject, parent string) error {
 		return fmt.Errorf("Could not get Google Drive client")
 	}
 
-	if err := d.cache.DeleteObject(object.ObjectID); nil != err {
+	if err := d.Cache.DeleteObject(object.ObjectID); nil != err {
 		Log.Debugf("%v", err)
 		return fmt.Errorf("Could not delete object %v (%v) from cache", object.ObjectID, object.Name)
 	}
@@ -309,13 +309,13 @@ func (d *Client) Remove(object *APIObject, parent string) error {
 			if _, err := client.Files.Update(object.ObjectID, &gdrive.File{Trashed: true}).SupportsAllDrives(true).Do(); nil != err {
 				Log.Debugf("%v", err)
 				Log.Warningf("Could not delete object %v (%v) from API", object.ObjectID, object.Name)
-				d.cache.UpdateObject(object)
+				d.Cache.UpdateObject(object)
 			}
 		} else {
 			if _, err := client.Files.Update(object.ObjectID, nil).RemoveParents(parent).SupportsAllDrives(true).Do(); nil != err {
 				Log.Debugf("%v", err)
 				Log.Warningf("Could not unsubscribe object %v (%v) from API", object.ObjectID, object.Name)
-				d.cache.UpdateObject(object)
+				d.Cache.UpdateObject(object)
 			}
 		}
 	}()
@@ -349,7 +349,7 @@ func (d *Client) Mkdir(parent string, Name string) (*APIObject, error) {
 		return nil, fmt.Errorf("Could not map file to object %v (%v)", file.Id, file.Name)
 	}
 
-	if err := d.cache.UpdateObject(Obj); nil != err {
+	if err := d.Cache.UpdateObject(Obj); nil != err {
 		Log.Debugf("%v", err)
 		return nil, fmt.Errorf("Could not create object %v (%v) from cache", Obj.ObjectID, Obj.Name)
 	}
@@ -379,7 +379,7 @@ func (d *Client) Rename(object *APIObject, OldParent string, NewParent string, N
 	}
 	object.Parents = append(object.Parents, NewParent)
 
-	if err := d.cache.UpdateObject(object); nil != err {
+	if err := d.Cache.UpdateObject(object); nil != err {
 		Log.Debugf("%v", err)
 		return fmt.Errorf("Could not rename object %v (%v) from cache", object.ObjectID, object.Name)
 	}
