@@ -8,8 +8,7 @@ import (
 // Stack is a thread safe list/stack implementation
 type Stack struct {
 	items   *list.List
-	index   map[string]*list.Element
-	len     int
+	index   map[uint64]*list.Element
 	lock    sync.Mutex
 	maxSize int
 }
@@ -18,27 +17,33 @@ type Stack struct {
 func NewStack(maxChunks int) *Stack {
 	return &Stack{
 		items:   list.New(),
-		index:   make(map[string]*list.Element, maxChunks),
+		index:   make(map[uint64]*list.Element, maxChunks),
 		maxSize: maxChunks,
 	}
 }
 
-// Pop pops the first item from the stack
-func (s *Stack) Pop() string {
+// Len gets the number of items on the stack
+func (s *Stack) Len() int {
 	s.lock.Lock()
-	if s.len < s.maxSize {
+	defer s.lock.Unlock()
+	return s.items.Len()
+}
+
+// Pop pops the first item from the stack
+func (s *Stack) Pop() uint64 {
+	s.lock.Lock()
+	if s.items.Len() < s.maxSize {
 		s.lock.Unlock()
-		return ""
+		return 0
 	}
 
 	item := s.items.Front()
 	if nil == item {
 		s.lock.Unlock()
-		return ""
+		return 0
 	}
 	s.items.Remove(item)
-	s.len--
-	id := item.Value.(string)
+	id := item.Value.(uint64)
 	delete(s.index, id)
 	s.lock.Unlock()
 
@@ -46,7 +51,7 @@ func (s *Stack) Pop() string {
 }
 
 // Touch moves the specified item to the last position of the stack
-func (s *Stack) Touch(id string) {
+func (s *Stack) Touch(id uint64) {
 	s.lock.Lock()
 	item, exists := s.index[id]
 	if exists {
@@ -56,7 +61,7 @@ func (s *Stack) Touch(id string) {
 }
 
 // Push adds a new item to the last position of the stack
-func (s *Stack) Push(id string) {
+func (s *Stack) Push(id uint64) {
 	s.lock.Lock()
 	if _, exists := s.index[id]; exists {
 		s.lock.Unlock()
@@ -64,6 +69,15 @@ func (s *Stack) Push(id string) {
 	}
 	s.items.PushBack(id)
 	s.index[id] = s.items.Back()
-	s.len++
+	s.lock.Unlock()
+}
+
+// Remove an item from the stack
+func (s *Stack) Remove(id uint64) {
+	s.lock.Lock()
+	if item, exists := s.index[id]; exists {
+		s.items.Remove(item)
+		delete(s.index, id)
+	}
 	s.lock.Unlock()
 }
