@@ -69,7 +69,7 @@ func NewManager(
 		return nil, fmt.Errorf("max-chunks must be greater than 2 and bigger than the load ahead value")
 	}
 
-	storage, err := NewStorage(chunkSize, maxChunks, chunkFile)
+	storage, err := NewStorage(chunkSize, maxChunks, chunkFile, client.Cache)
 	if nil != err {
 		return nil, err
 	}

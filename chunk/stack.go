@@ -70,12 +70,11 @@ func (s *Stack) Push(id uint64) {
 	s.lock.Unlock()
 }
 
-// Remove an item from the stack
-func (s *Stack) Remove(id uint64) {
+// Purge an item from the stack
+func (s *Stack) Purge(id uint64) {
 	s.lock.Lock()
 	if item, exists := s.index[id]; exists {
-		s.items.Remove(item)
-		delete(s.index, id)
+		s.items.MoveToFront(item)
 	}
 	s.lock.Unlock()
 }

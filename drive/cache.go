@@ -2,6 +2,7 @@ package drive
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -25,6 +26,7 @@ var (
 	bObjects   = []byte("api_objects")
 	bParents   = []byte("idx_api_objects_py_parent")
 	bPageToken = []byte("page_token")
+	bChunks    = []byte("chunks")
 )
 
 // APIObject is a Google Drive file object
@@ -44,6 +46,9 @@ type PageToken struct {
 	ID    string
 	Token string
 }
+
+// LoadChunkCallback is called for each existing chunk during init
+type LoadChunkCallback func(id, offset uint64, size, checksum uint32)
 
 // NewCache creates a new cache instance
 func NewCache(cacheFile, configPath string, sqlDebug bool) (*Cache, error) {
@@ -69,6 +74,9 @@ func NewCache(cacheFile, configPath string, sqlDebug bool) (*Cache, error) {
 			return err
 		}
 		if _, err := tx.CreateBucketIfNotExists(bPageToken); nil != err {
+			return err
+		}
+		if _, err := tx.CreateBucketIfNotExists(bChunks); nil != err {
 			return err
 		}
 		return nil
@@ -118,6 +126,75 @@ func (c *Cache) StoreToken(token *oauth2.Token) error {
 	}
 
 	return nil
+}
+
+// StoreChunk persists chunk metadata
+func (c *Cache) StoreChunk(offset uint64, metadata []byte) (err error) {
+	err = c.db.Batch(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bChunks)
+		return b.Put(chunkOffsetKey(offset), metadata)
+	})
+
+	return
+}
+
+// DeleteChunk deletes chunk metadata
+func (c *Cache) DeleteChunk(offset uint64) (err error) {
+	err = c.db.Batch(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bChunks)
+		return b.Delete(chunkOffsetKey(offset))
+	})
+
+	return
+}
+
+// LoadChunk loads chunk metadata
+func (c *Cache) LoadChunk(offset uint64) (metadata []byte, err error) {
+	err = c.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bChunks)
+		metadata = b.Get(chunkOffsetKey(offset))
+		return nil
+	})
+
+	return
+}
+
+// PruneChunks cleans stale chunk metadata
+func (c *Cache) PruneChunks(chunkSize uint64, maxChunks int) (deleted int, err error) {
+	minOffset := uint64(0)
+	maxOffset := chunkSize*uint64(maxChunks) - chunkSize
+
+	err = c.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bChunks)
+		c := b.Cursor()
+
+		min := chunkOffsetKey(minOffset)
+		max := chunkOffsetKey(maxOffset)
+		for k, _ := c.Seek(min); k != nil && bytes.Compare(k, max) < 0; k, _ = c.Next() {
+			if binary.BigEndian.Uint64(k)%chunkSize != 0 {
+				if nil == b.Delete(k) {
+					deleted++
+				}
+			}
+		}
+		// Were over the maxOffset, so delete everything
+		for k, _ := c.Next(); k != nil; k, _ = c.Next() {
+			if nil == b.Delete(k) {
+				deleted++
+			}
+		}
+
+		return nil
+	})
+
+	return
+}
+
+func chunkOffsetKey(offset uint64) []byte {
+	key := make([]byte, 8)
+	// BigEndian to get proper sorting
+	binary.BigEndian.PutUint64(key, offset)
+	return key
 }
 
 // GetObject gets an object by id
