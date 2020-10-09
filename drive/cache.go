@@ -160,9 +160,9 @@ func (c *Cache) LoadChunk(offset uint64) (metadata []byte, err error) {
 }
 
 // PruneChunks cleans stale chunk metadata
-func (c *Cache) PruneChunks(chunkSize uint64, maxChunks int) (deleted int, err error) {
+func (c *Cache) PruneChunks(chunkSize uint64, maxChunks uint64) (deleted uint64, err error) {
 	minOffset := uint64(0)
-	maxOffset := chunkSize*uint64(maxChunks) - chunkSize
+	maxOffset := chunkSize*maxChunks - chunkSize
 
 	err = c.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bChunks)

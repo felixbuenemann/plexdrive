@@ -48,7 +48,7 @@ func NewManager(
 	checkThreads int,
 	loadThreads int,
 	client *drive.Client,
-	maxChunks int) (*Manager, error) {
+	maxChunks int64) (*Manager, error) {
 
 	if chunkSize < 4096 {
 		return nil, fmt.Errorf("Chunk size must not be < 4096")
@@ -65,7 +65,7 @@ func NewManager(
 			return nil, fmt.Errorf("Chunk size must be divideable by %v", pageSize)
 		}
 	}
-	if maxChunks < 2 || maxChunks < loadAhead {
+	if maxChunks < 2 || maxChunks < int64(loadAhead) {
 		return nil, fmt.Errorf("max-chunks must be greater than 2 and bigger than the load ahead value")
 	}
 
@@ -105,7 +105,7 @@ func (m *Manager) GetChunk(object *drive.APIObject, offset, size int64) ([]byte,
 		return nil, fmt.Errorf("Tried to read past EOF of %v at offset %v", object.ObjectID, offset)
 	}
 	if offset+size > maxOffset {
-		size = int64(object.Size) - offset
+		size = maxOffset - offset
 	}
 
 	ranges := splitChunkRanges(offset, size, m.ChunkSize)

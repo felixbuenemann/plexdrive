@@ -29,19 +29,19 @@ var (
 type Storage struct {
 	ChunkFile  *os.File
 	ChunkSize  int64
-	MaxChunks  int
+	MaxChunks  int64
 	cache      *drive.Cache
 	chunks     map[uint64]*Chunk
 	stack      *Stack
 	lock       sync.RWMutex
 	buffers    chan *Chunk
-	loadChunks int
+	loadChunks int64
 	signals    chan os.Signal
 	verify     bool
 }
 
 // NewStorage creates a new storage
-func NewStorage(chunkSize int64, maxChunks int, chunkFilePath string, cache *drive.Cache) (*Storage, error) {
+func NewStorage(chunkSize int64, maxChunks int64, chunkFilePath string, cache *drive.Cache) (*Storage, error) {
 	s := Storage{
 		ChunkSize: chunkSize,
 		MaxChunks: maxChunks,
@@ -65,7 +65,7 @@ func NewStorage(chunkSize int64, maxChunks int, chunkFilePath string, cache *dri
 			return nil, fmt.Errorf("Could not stat chunk cache file")
 		}
 		currentSize := stat.Size()
-		wantedSize := chunkSize * int64(maxChunks)
+		wantedSize := chunkSize * maxChunks
 		if currentSize != wantedSize {
 			err = chunkFile.Truncate(wantedSize)
 			if nil != err {
@@ -76,7 +76,7 @@ func NewStorage(chunkSize int64, maxChunks int, chunkFilePath string, cache *dri
 		Log.Infof("Created chunk cache file %v", chunkFile.Name())
 		s.ChunkFile = chunkFile
 		s.verify = true
-		s.loadChunks = int(min(currentSize/chunkSize, int64(maxChunks)))
+		s.loadChunks = min(currentSize/chunkSize, maxChunks)
 	} else {
 		s.verify = false
 	}
@@ -96,7 +96,7 @@ func NewStorage(chunkSize int64, maxChunks int, chunkFilePath string, cache *dri
 func (s *Storage) chunkLoader() error {
 	start := time.Now()
 	loadedChunks := 0
-	for i := 0; i < s.MaxChunks; i++ {
+	for i := int64(0); i < s.MaxChunks; i++ {
 		select {
 		case sig := <-s.signals:
 			Log.Warningf("Received signal %v, aborting chunk loader", sig)
@@ -116,7 +116,7 @@ func (s *Storage) chunkLoader() error {
 }
 
 // initChunk tries to restore a chunk from disk
-func (s *Storage) initChunk(index int) (bool, error) {
+func (s *Storage) initChunk(index int64) (bool, error) {
 	chunk, err := s.allocateChunk(index)
 	if err != nil {
 		Log.Debugf("%v", err)
@@ -158,12 +158,12 @@ func (s *Storage) initChunk(index int) (bool, error) {
 }
 
 // allocateChunk creates a new mmap-backed chunk
-func (s *Storage) allocateChunk(index int) (chunk *Chunk, err error) {
+func (s *Storage) allocateChunk(index int64) (chunk *Chunk, err error) {
 	// Log.Debugf("Mmap chunk %v / %v", index+1, s.MaxChunks)
 	chunk = new(Chunk)
 	chunk.verify = s.verify
 	if s.ChunkFile != nil {
-		offset := int64(index) * s.ChunkSize
+		offset := index * s.ChunkSize
 		chunk.bytes, err = syscall.Mmap(int(s.ChunkFile.Fd()), offset, int(s.ChunkSize), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
 		chunk.Offset = uint64(offset)
 	} else {
@@ -180,7 +180,7 @@ func (s *Storage) Clear() error {
 	if nil == s.ChunkFile {
 		return nil
 	}
-	prunedChunks, err := s.cache.PruneChunks(uint64(s.ChunkSize), s.MaxChunks)
+	prunedChunks, err := s.cache.PruneChunks(uint64(s.ChunkSize), uint64(s.MaxChunks))
 	if nil == err {
 		Log.Infof("Pruned %v stale chunks from the database", prunedChunks)
 	}

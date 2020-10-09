@@ -10,11 +10,11 @@ type Stack struct {
 	items   *list.List
 	index   map[uint64]*list.Element
 	lock    sync.Mutex
-	maxSize int
+	maxSize int64
 }
 
 // NewStack creates a new stack
-func NewStack(maxChunks int) *Stack {
+func NewStack(maxChunks int64) *Stack {
 	return &Stack{
 		items:   list.New(),
 		index:   make(map[uint64]*list.Element, maxChunks),
@@ -23,16 +23,16 @@ func NewStack(maxChunks int) *Stack {
 }
 
 // Len gets the number of items on the stack
-func (s *Stack) Len() int {
+func (s *Stack) Len() int64 {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	return s.items.Len()
+	return int64(s.items.Len())
 }
 
 // Pop pops the first item from the stack
 func (s *Stack) Pop() uint64 {
 	s.lock.Lock()
-	if s.items.Len() < s.maxSize {
+	if int64(s.items.Len()) < s.maxSize {
 		s.lock.Unlock()
 		return 0
 	}
