@@ -3,7 +3,9 @@ package chunk
 import (
 	"fmt"
 	"os"
+	"time"
 
+	. "github.com/claudetech/loggo/default"
 	"github.com/plexdrive/plexdrive/drive"
 )
 
@@ -100,6 +102,7 @@ func NewManager(
 
 // GetChunk loads one chunk and starts the preload for the next chunks
 func (m *Manager) GetChunk(object *drive.APIObject, offset, size int64) ([]byte, error) {
+	start := time.Now()
 	maxOffset := int64(object.Size)
 	if offset > maxOffset {
 		return nil, fmt.Errorf("Tried to read past EOF of %v at offset %v", object.ObjectID, offset)
@@ -131,6 +134,13 @@ func (m *Manager) GetChunk(object *drive.APIObject, offset, size int64) ([]byte,
 		}
 	}
 	close(responses)
+
+	elapsed := time.Since(start)
+	if elapsed > time.Second {
+		Log.Warningf("Request %v:%v:%v finished in %v", object.ObjectID, offset, size, elapsed)
+	} else {
+		Log.Infof("Request %v:%v:%v finished in %v", object.ObjectID, offset, size, elapsed)
+	}
 
 	return data, nil
 }
