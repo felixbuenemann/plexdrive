@@ -199,13 +199,13 @@ func (s *Storage) Load(key string) []byte {
 		return nil
 	}
 
-	if chunk.Valid() {
-		Log.Tracef("Load chunk %v", key)
+	if chunk.Valid(id) {
+		Log.Tracef("Load chunk %v id:%016x checksum:%08x size:%v", key, id, chunk.Checksum, chunk.Size)
 		s.stack.Touch(id)
-		return chunk.bytes
+		return chunk.Read()
 	}
 
-	Log.Warningf("Purge invalid chunk %v", key)
+	Log.Warningf("Purge invalid chunk %v id:%016x (exp:%016x) checksum:%08x (exp:%08x) size:%v", key, chunk.ID, id, chunk.Checksum, chunk.calculateChecksum(), chunk.Size)
 	s.stack.Purge(id)
 	return nil
 }
@@ -218,7 +218,7 @@ func (s *Storage) Store(key string, bytes []byte) (err error) {
 	// Avoid storing same chunk multiple times
 	chunk, exists := s.chunks[id]
 	if exists {
-		if chunk.Valid() {
+		if chunk.Valid(id) {
 			Log.Tracef("Create chunk %v %v/%v (exists)", key, s.stack.Len(), s.MaxChunks)
 			s.lock.RUnlock()
 			return nil
@@ -237,7 +237,7 @@ func (s *Storage) Store(key string, bytes []byte) (err error) {
 			chunk = s.chunks[deleteID]
 			delete(s.chunks, deleteID)
 
-			chunk.ID = 0
+			chunk.Reset()
 			if err := s.updateJournal(chunk); nil != err {
 				return err
 			}
@@ -254,10 +254,7 @@ func (s *Storage) Store(key string, bytes []byte) (err error) {
 		}
 	}
 
-	copy(chunk.bytes, bytes)
-	chunk.UpdateChecksum()
-	chunk.ID = id
-	chunk.Size = uint32(len(bytes))
+	chunk.Update(id, bytes)
 	s.chunks[id] = chunk
 	s.stack.Push(id)
 
@@ -277,6 +274,9 @@ func keyToID(key string) uint64 {
 func (s *Storage) updateJournal(c *Chunk) (err error) {
 	if nil == s.ChunkFile {
 		return nil
+	}
+	if c.ID == 0 {
+		return s.cache.DeleteChunk(c.Offset)
 	}
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
@@ -305,7 +305,7 @@ func (s *Storage) loadJournal(c *Chunk) (err error) {
 
 	err = dec.Decode(c)
 	if nil != err {
-		c.ID = 0
+		c.Reset()
 		c.Offset = offset
 		return
 	}
