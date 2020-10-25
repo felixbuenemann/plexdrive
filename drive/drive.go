@@ -22,7 +22,7 @@ var Fields string
 
 // init initializes the global configurations
 func init() {
-	Fields = "id, name, mimeType, modifiedTime, size, explicitlyTrashed, parents, capabilities/canTrash"
+	Fields = "id, name, mimeType, modifiedTime, md5Checksum, size, explicitlyTrashed, parents, capabilities/canTrash"
 }
 
 // Client holds the Google Drive API connection(s)
@@ -422,5 +422,6 @@ func (d *Client) mapFileToObject(file *gdrive.File) (*APIObject, error) {
 		DownloadURL:  fmt.Sprintf("https://www.googleapis.com/drive/v3/files/%v?alt=media", file.Id),
 		Parents:      parents,
 		CanTrash:     file.Capabilities.CanTrash,
+		MD5Checksum:  file.Md5Checksum,
 	}, nil
 }
