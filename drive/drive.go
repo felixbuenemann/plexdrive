@@ -22,7 +22,7 @@ var Fields string
 
 // init initializes the global configurations
 func init() {
-	Fields = "id, name, mimeType, modifiedTime, md5Checksum, size, explicitlyTrashed, parents, capabilities/canTrash"
+	Fields = "id, name, mimeType, modifiedTime, md5Checksum, size, headRevisionId, explicitlyTrashed, parents, capabilities/canTrash"
 }
 
 // Client holds the Google Drive API connection(s)
@@ -408,9 +408,17 @@ func (d *Client) mapFileToObject(file *gdrive.File) (*APIObject, error) {
 		lastModified = time.Now()
 	}
 
-	var parents []string
-	for _, parent := range file.Parents {
-		parents = append(parents, parent)
+	var downloadURL string
+	if "" != file.HeadRevisionId {
+		// Unfortunately the v3 revisions API currently does not support range requests,
+		// so we need to fall back to v2 API to download revisions.
+		// downloadURL = fmt.Sprintf("https://www.googleapis.com/drive/v3/files/%v/revisions/%v?alt=media", file.Id, file.HeadRevisionId)
+		downloadURL = fmt.Sprintf("https://www.googleapis.com/drive/v2/files/%v?alt=media&revisionId=%v", file.Id, file.HeadRevisionId)
+	} else {
+		// Usage of v2 API here only for consistency, v3 works fine.
+		// Maybe v2 with "source=downloadUrl" could be faster (needs testing).
+		// downloadURL = fmt.Sprintf("https://www.googleapis.com/drive/v3/files/%v?alt=media", file.Id)
+		downloadURL = fmt.Sprintf("https://www.googleapis.com/drive/v2/files/%v?alt=media", file.Id)
 	}
 
 	return &APIObject{
@@ -419,9 +427,10 @@ func (d *Client) mapFileToObject(file *gdrive.File) (*APIObject, error) {
 		IsDir:        file.MimeType == "application/vnd.google-apps.folder",
 		LastModified: lastModified,
 		Size:         uint64(file.Size),
-		DownloadURL:  fmt.Sprintf("https://www.googleapis.com/drive/v3/files/%v?alt=media", file.Id),
-		Parents:      parents,
+		DownloadURL:  downloadURL,
+		Parents:      file.Parents,
 		CanTrash:     file.Capabilities.CanTrash,
 		MD5Checksum:  file.Md5Checksum,
+		RevisionID:   file.HeadRevisionId,
 	}, nil
 }
