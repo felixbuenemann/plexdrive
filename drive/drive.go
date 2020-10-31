@@ -35,6 +35,8 @@ type Client struct {
 	driveID         string
 	changesChecking bool
 	lock            sync.Mutex
+	ChangedObjects  chan []*APIObject
+	NotifyFsChanges bool
 }
 
 // NewClient creates a new Google Drive client
@@ -52,8 +54,9 @@ func NewClient(config *config.Config, cache *Cache, refreshInterval time.Duratio
 			RedirectURL: "urn:ietf:wg:oauth:2.0:oob",
 			Scopes:      []string{gdrive.DriveScope},
 		},
-		rootNodeID: rootNodeID,
-		driveID:    driveID,
+		rootNodeID:     rootNodeID,
+		driveID:        driveID,
+		ChangedObjects: make(chan []*APIObject, 1),
 	}
 
 	if "" == client.rootNodeID {
@@ -80,6 +83,7 @@ func (d *Client) startWatchChanges(refreshInterval time.Duration) {
 		select {
 		case sig := <-sigChan:
 			if sig != syscall.SIGHUP {
+				close(d.ChangedObjects)
 				return
 			}
 			d.checkChanges(false)
@@ -184,6 +188,11 @@ func (d *Client) checkChanges(firstCheck bool) {
 				processedItems, deletedItems, updatedItems)
 		}
 
+		if !firstCheck && d.NotifyFsChanges && len(objects) > 0 {
+			// Notify FUSE about changed nodes
+			d.ChangedObjects <- objects
+		}
+
 		if "" != results.NextPageToken {
 			pageToken = results.NextPageToken
 			d.cache.StoreStartPageToken(pageToken)
@@ -273,17 +282,18 @@ func (d *Client) GetRoot() (*APIObject, error) {
 		return nil, fmt.Errorf("Could not get object %v from API", d.rootNodeID)
 	}
 
-	// getting file size
-	if file.MimeType != "application/vnd.google-apps.folder" && 0 == file.Size {
-		res, err := client.Files.Get(d.rootNodeID).SupportsAllDrives(true).Download()
-		if nil != err {
-			Log.Debugf("%v", err)
-			return nil, fmt.Errorf("Could not get file size for object %v", d.rootNodeID)
-		}
-		file.Size = res.ContentLength
+	if file.MimeType != "application/vnd.google-apps.folder" {
+		return nil, fmt.Errorf("Root node %v is not a folder (%v)", file.Id, file.MimeType)
 	}
 
-	return d.mapFileToObject(file)
+	root, err := d.mapFileToObject(file)
+	if nil != err {
+		return nil, err
+	}
+	if err := d.cache.UpdateObject(root); nil != err {
+		return root, fmt.Errorf("Failed to cache root node: %v", err)
+	}
+	return root, nil
 }
 
 // GetObject gets an object by id
