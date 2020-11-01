@@ -8,9 +8,8 @@ import (
 	"path/filepath"
 
 	. "github.com/claudetech/loggo/default"
+	bolt "github.com/etcd-io/bbolt"
 	"golang.org/x/oauth2"
-
-	"github.com/boltdb/bolt"
 )
 
 // Cache is the cache
