@@ -166,7 +166,7 @@ func (d *Client) checkChanges(firstCheck bool) {
 				}
 				deletedItems++
 			} else {
-				object, err := d.mapFileToObject(change.File)
+				object, err := NewAPIObject(change.File)
 				if nil != err {
 					Log.Debugf("%v", err)
 					Log.Warningf("Could not map Google Drive file %v (%v) to object", change.File.Id, change.File.Name)
@@ -286,7 +286,7 @@ func (d *Client) GetRoot() (*APIObject, error) {
 		return nil, fmt.Errorf("Root node %v is not a folder (%v)", file.Id, file.MimeType)
 	}
 
-	root, err := d.mapFileToObject(file)
+	root, err := NewAPIObject(file)
 	if nil != err {
 		return nil, err
 	}
@@ -363,18 +363,18 @@ func (d *Client) Mkdir(parent string, Name string) (*APIObject, error) {
 		return nil, fmt.Errorf("Could not get object fields %v from API", created.Id)
 	}
 
-	Obj, err := d.mapFileToObject(file)
+	object, err := NewAPIObject(file)
 	if nil != err {
 		Log.Debugf("%v", err)
 		return nil, fmt.Errorf("Could not map file to object %v (%v)", file.Id, file.Name)
 	}
 
-	if err := d.cache.UpdateObject(Obj); nil != err {
+	if err := d.cache.UpdateObject(object); nil != err {
 		Log.Debugf("%v", err)
-		return nil, fmt.Errorf("Could not create object %v (%v) from cache", Obj.ObjectID, Obj.Name)
+		return nil, fmt.Errorf("Could not create object %v (%v) from cache", object.ObjectID, object.Name)
 	}
 
-	return Obj, nil
+	return object, nil
 }
 
 // Rename renames file in Google Drive
@@ -405,42 +405,4 @@ func (d *Client) Rename(object *APIObject, OldParent string, NewParent string, N
 	}
 
 	return nil
-}
-
-// mapFileToObject maps a Google Drive file to APIObject
-func (d *Client) mapFileToObject(file *gdrive.File) (*APIObject, error) {
-	Log.Tracef("Converting Google Drive file: %v", file)
-
-	lastModified, err := time.Parse(time.RFC3339, file.ModifiedTime)
-	if nil != err {
-		Log.Debugf("%v", err)
-		Log.Warningf("Could not parse last modified date for object %v (%v)", file.Id, file.Name)
-		lastModified = time.Now()
-	}
-
-	var downloadURL string
-	if "" != file.HeadRevisionId {
-		// Unfortunately the v3 revisions API currently does not support range requests,
-		// so we need to fall back to v2 API to download revisions.
-		// downloadURL = fmt.Sprintf("https://www.googleapis.com/drive/v3/files/%v/revisions/%v?alt=media", file.Id, file.HeadRevisionId)
-		downloadURL = fmt.Sprintf("https://www.googleapis.com/drive/v2/files/%v?alt=media&revisionId=%v", file.Id, file.HeadRevisionId)
-	} else {
-		// Usage of v2 API here only for consistency, v3 works fine.
-		// Maybe v2 with "source=downloadUrl" could be faster (needs testing).
-		// downloadURL = fmt.Sprintf("https://www.googleapis.com/drive/v3/files/%v?alt=media", file.Id)
-		downloadURL = fmt.Sprintf("https://www.googleapis.com/drive/v2/files/%v?alt=media", file.Id)
-	}
-
-	return &APIObject{
-		ObjectID:     file.Id,
-		Name:         file.Name,
-		IsDir:        file.MimeType == "application/vnd.google-apps.folder",
-		LastModified: lastModified,
-		Size:         uint64(file.Size),
-		DownloadURL:  downloadURL,
-		Parents:      file.Parents,
-		CanTrash:     file.Capabilities.CanTrash,
-		MD5Checksum:  file.Md5Checksum,
-		RevisionID:   file.HeadRevisionId,
-	}, nil
 }

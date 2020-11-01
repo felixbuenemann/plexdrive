@@ -7,8 +7,6 @@ import (
 	"io/ioutil"
 	"path/filepath"
 
-	"time"
-
 	. "github.com/claudetech/loggo/default"
 	"golang.org/x/oauth2"
 
@@ -26,20 +24,6 @@ var (
 	bParents   = []byte("idx_api_objects_py_parent")
 	bPageToken = []byte("page_token")
 )
-
-// APIObject is a Google Drive file object
-type APIObject struct {
-	ObjectID     string
-	Name         string
-	IsDir        bool
-	Size         uint64
-	LastModified time.Time
-	DownloadURL  string
-	Parents      []string
-	CanTrash     bool
-	MD5Checksum  string
-	RevisionID   string
-}
 
 // PageToken is the last change id
 type PageToken struct {
