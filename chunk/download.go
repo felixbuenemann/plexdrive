@@ -99,7 +99,7 @@ func downloadFromAPI(client *http.Client, request *Request, buffer []byte, delay
 		time.Sleep(time.Duration(delay) * time.Second)
 	}
 
-	req, err := http.NewRequest("GET", request.object.DownloadURL, nil)
+	req, err := http.NewRequest("GET", request.object.DownloadURL(), nil)
 	if nil != err {
 		Log.Debugf("%v", err)
 		return fmt.Errorf("Could not create request object %v (%v) from API", request.object.ObjectID, request.object.Name)
